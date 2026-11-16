@@ -19,6 +19,11 @@ class ApiError(Exception):
         self.message = message
 
 
+class RawJson(bytes):
+    """A pre-serialized JSON response body; the server sends it verbatim
+    instead of re-dumping the object on every request."""
+
+
 def _b64decode(s):
     try:
         return base64.b64decode(s, validate=False)
@@ -31,14 +36,14 @@ class RestAPI:
         self.store = store
         self.token = token
         self.request_id = request_id  # callable returning a new id string
+        self._auth = "Bearer " + token if token else None
 
     # ---------------------------------------------------------------- plumbing
 
     def _check_auth(self, headers):
-        if not self.token:
+        if self._auth is None:
             return
-        auth = headers.get("authorization", "")
-        if auth != "Bearer " + self.token:
+        if headers.get("authorization", "") != self._auth:
             raise ApiError(401, "Requires authentication")
 
     def _owner_repo(self, owner, name):
@@ -149,7 +154,14 @@ class RestAPI:
             "repository_url": "/api/v3/repos/%s/%s" % (repo.owner, repo.name),
         }
         issue["_json"] = obj
+        issue["_json_bytes"] = json.dumps(obj, separators=(",", ":")).encode()
         return obj
+
+    def issue_body(self, repo, issue):
+        """The issue's serialized JSON, cached with the same lifecycle as
+        issue_json's dict cache (invalidated wherever that is)."""
+        self.issue_json(repo, issue)
+        return RawJson(issue["_json_bytes"])
 
     def pr_json(self, repo, pr):
         head_tip = repo.refs.get("refs/heads/" + pr["head"])
@@ -516,7 +528,7 @@ class RestAPI:
                      "labels": [l if isinstance(l, str) else l.get("name") for l in labels],
                      "comments": [], "created_seq": self.store.next_seq()}
             repo.issues[number] = issue
-            return 201, {}, self.issue_json(repo, issue)
+            return 201, {}, self.issue_body(repo, issue)
         raise ApiError(404, "Not Found")
 
     def _issue_one(self, method, owner, name, number_s, body):
@@ -529,7 +541,7 @@ class RestAPI:
         if issue is None:
             raise ApiError(404, "Not Found")
         if method == "GET":
-            return 200, {}, self.issue_json(repo, issue)
+            return 200, {}, self.issue_body(repo, issue)
         if method == "PATCH":
             data = self._parse_body(body)
             if "state" in data and data["state"] in ("open", "closed"):
@@ -539,6 +551,7 @@ class RestAPI:
             if "body" in data:
                 issue["body"] = data["body"]
             issue.pop("_json", None)
+            issue.pop("_json_bytes", None)
             return 200, {}, self.issue_json(repo, issue)
         raise ApiError(404, "Not Found")
 

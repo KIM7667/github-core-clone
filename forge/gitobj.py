@@ -183,6 +183,7 @@ def read_pack(data):
         raise ValueError("unsupported pack version %d" % version)
     objs = {}
     order = []
+    mv = memoryview(data)
     i = 12
     for _ in range(count):
         start = i
@@ -198,8 +199,8 @@ def read_pack(data):
             base_pos = start - off
             base_sha, base_type = order[base_pos]
             d = zlib.decompressobj()
-            raw = d.decompress(data[i:])
-            consumed = len(data[i:]) - len(d.unused_data)
+            raw = d.decompress(mv[i:])
+            consumed = (len(data) - i) - len(d.unused_data)
             i += consumed
             raw = apply_delta(objs[base_sha][1], raw)
             sha = obj_id(base_type, raw)
@@ -209,8 +210,8 @@ def read_pack(data):
             base_sha = data[i:i + 20].hex()
             i += 20
             d = zlib.decompressobj()
-            raw = d.decompress(data[i:])
-            consumed = len(data[i:]) - len(d.unused_data)
+            raw = d.decompress(mv[i:])
+            consumed = (len(data) - i) - len(d.unused_data)
             i += consumed
             base_type, base_raw = objs[base_sha]
             raw = apply_delta(base_raw, raw)
@@ -219,8 +220,8 @@ def read_pack(data):
             order.append((sha, base_type))
         else:
             d = zlib.decompressobj()
-            raw = d.decompress(data[i:])
-            consumed = len(data[i:]) - len(d.unused_data)
+            raw = d.decompress(mv[i:])
+            consumed = (len(data) - i) - len(d.unused_data)
             i += consumed
             if len(raw) != size:
                 raise ValueError("object size mismatch")

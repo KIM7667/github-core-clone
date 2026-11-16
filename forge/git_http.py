@@ -38,6 +38,10 @@ def _peeled(repo, sha):
 # ---------------------------------------------------------------- advertisements
 
 def advertisement_v2_upload_pack():
+    return _ADV_V2_UPLOAD_PACK
+
+
+def _build_advertisement_v2_upload_pack():
     lines = [
         b"# service=git-upload-pack\n",
         None,
@@ -55,6 +59,9 @@ def advertisement_v2_upload_pack():
         else:
             out += gitobj.pkt_line(item)
     return bytes(out)
+
+
+_ADV_V2_UPLOAD_PACK = _build_advertisement_v2_upload_pack()
 
 
 def _v0_caps(service, repo):
@@ -210,11 +217,24 @@ def compute_fetch(repo, wants, haves, depth, client_shallow):
 
 
 def _pack_for(repo, shas):
-    items = []
-    for sha in sorted(shas):
-        otype, raw = repo.objects[sha]
-        items.append((otype, raw))
-    return gitobj.write_pack(items)
+    key = tuple(sorted(shas))
+    pack = _PACK_CACHE.get(key)
+    if pack is None:
+        items = []
+        for sha in key:
+            otype, raw = repo.objects[sha]
+            items.append((otype, raw))
+        pack = gitobj.write_pack(items)
+        if len(_PACK_CACHE) > 512:
+            _PACK_CACHE.clear()
+        _PACK_CACHE[key] = pack
+    return pack
+
+
+# Packs are a pure function of the object set (objects are immutable and
+# content-addressed), and the clone workload fetches the identical pack
+# dozens of times: memoize. Bounded, cleared wholesale when full.
+_PACK_CACHE = {}
 
 
 def _sideband_pack_chunks(pack, max_chunk=65515):
