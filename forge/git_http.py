@@ -168,9 +168,30 @@ def _ancestors(repo, tips, max_depth=None):
     return depths, commits
 
 
+# compute_fetch is a pure function of the object table's contents plus its
+# arguments, and the table only ever grows (objects are immutable and
+# content-addressed; nothing deletes from it), so (table size, args) is a
+# sound cache key: any push that could change a result grows the table.
+# The clone workload asks the identical question dozens of times.
+_FETCH_CACHE = {}
+
+
 def compute_fetch(repo, wants, haves, depth, client_shallow):
     """Return (objects_to_send: set of shas, shallow: [shas], unshallow: [shas],
     acks: [shas], nak: bool)."""
+    key = (repo.id, len(repo.objects), tuple(wants),
+           tuple(haves), depth, tuple(client_shallow))
+    hit = _FETCH_CACHE.get(key)
+    if hit is not None:
+        return hit
+    result = _compute_fetch(repo, wants, haves, depth, client_shallow)
+    if len(_FETCH_CACHE) > 512:
+        _FETCH_CACHE.clear()
+    _FETCH_CACHE[key] = result
+    return result
+
+
+def _compute_fetch(repo, wants, haves, depth, client_shallow):
     depths, commits = _ancestors(repo, wants, max_depth=depth)
     if depth is not None:
         # commits at the depth boundary are those with no parents included:

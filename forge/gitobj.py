@@ -22,10 +22,7 @@ NAME_TYPES = {b"commit": OBJ_COMMIT, b"tree": OBJ_TREE, b"blob": OBJ_BLOB, b"tag
 
 def obj_id(otype, data):
     h = hashlib.sha1()
-    h.update(TYPE_NAMES[otype])
-    h.update(b" ")
-    h.update(str(len(data)).encode())
-    h.update(b"\0")
+    h.update(b"%s %d\0" % (TYPE_NAMES[otype], len(data)))
     h.update(data)
     return h.hexdigest()
 
